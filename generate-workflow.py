@@ -20,7 +20,9 @@ class BenchmarkInfo(NamedTuple):
     dir_name: str
     build_cmds: str
     convert_extra: Optional[str] = None
-    compile_converted_extra: Optional[str] = None
+    # For now, the post-conversion build is assumed to be based on `make`. We
+    # can generalize it if needed.
+    make_converted_extra: Optional[str] = None
     components: Optional[List[BenchmarkComponent]] = None
 
 
@@ -45,7 +47,7 @@ benchmarks = [
           (cd $i ; bear make LOCAL_CFLAGS="-D_ISOC99_SOURCE") \\
         done
         '''),
-        compile_converted_extra='LOCAL_CFLAGS="-D_ISOC99_SOURCE"',
+        make_converted_extra='LOCAL_CFLAGS="-D_ISOC99_SOURCE"',
         components=[BenchmarkComponent(c, c) for c in ptrdist_components]),
 
     # LibArchive
@@ -78,14 +80,14 @@ benchmarks = [
             --new-name=luac_main \\
             luac.c )
         '''),
-        compile_converted_extra='linux'),
+        make_converted_extra='linux'),
 
     # LibTiff
     BenchmarkInfo(
         'libtiff',
         'LibTiff',
         'tiff-4.1.0',
-        # Having compile_converted_project.sh pass
+        # Having make_converted_project.sh pass
         # CC=${{env.builddir}}/bin/clang to `make` seems to be insufficient to
         # get it to use the Checked C compiler. (Surprisingly, for the other
         # CMake-based projects, it seems to be sufficient.) So just configure
@@ -105,7 +107,7 @@ benchmarks = [
         --skip '.*/test/.*\.c' \\
         --skip '.*/contrib/.*\.c' \\
         '''),
-        compile_converted_extra='tiff'),
+        make_converted_extra='tiff'),
 
     # Zlib
     BenchmarkInfo(
@@ -237,9 +239,9 @@ with open('.github/workflows/main.yml', 'w') as out:
             at_job = 'alltypes' if alltypes else 'no_alltypes'
             at_job_friendly = '-alltypes' if alltypes else 'no -alltypes'
             convert_extra = binfo.convert_extra or ''
-            compile_converted_extra = (' ' + binfo.compile_converted_extra if
-                                       binfo.compile_converted_extra is not None
-                                       else '')
+            make_converted_extra = (' ' + binfo.make_converted_extra
+                                    if binfo.make_converted_extra is not None
+                                    else '')
             # Python argparse thinks `-extra-3c-arg -alltypes` is two options
             # rather than an option with an argument.
             at_flag = '-extra-3c-arg=-alltypes \\\n' if alltypes else ''
@@ -293,10 +295,12 @@ with open('.github/workflows/main.yml', 'w') as out:
                 steps.append(
                     Step(
                         'Build converted ' + component.name + at_ignore_step,
+                        # convert_project.py sets -output-dir=out.checked as
+                        # standard.
                         textwrap.dedent(f'''\
                         cd {component_dir}
-                        ${{{{env.port_tools}}}}/compile_converted_project.sh \\
-                          ${{{{env.builddir}}}}/bin/clang{compile_converted_extra}{at_ignore_code}
+                        cp -r out.checked/* .
+                        make -k CC="${{{{env.builddir}}}}/bin/clang"{make_converted_extra}{at_ignore_code}
                         ''')))
 
             # We want blank lines between steps but not after the last step of
